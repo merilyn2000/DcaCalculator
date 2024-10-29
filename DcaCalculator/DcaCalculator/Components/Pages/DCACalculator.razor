@@ -6,6 +6,7 @@
 @using DcaCalculator
 @using DcaCalculator.Services
 @using Microsoft.EntityFrameworkCore
+@using System.Globalization
 
 @inject ICryptoPriceService CryptoPriceService
 
@@ -53,9 +54,10 @@
                     <tr>
                         <th>Date:</th>
                         <th>Investment amount:</th>
-                        <th>@(selectedCryptoSymbol) Quantity:</th>
-                        <th>Today's value:</th>
+                        <th>@(selectedCryptoSymbol) Amount:</th>
+                        <th>Today's value in USD:</th>
                         <th>ROI (%):</th>
+                        <th>Today's value in EUR:</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -67,11 +69,15 @@
                             <td>@result.CryptoAmount.ToString("F4")</td>
                             <td>@result.CurrentValue.ToString("C")</td>
                             <td>@result.ReturnOnInvestment.ToString("F2")%</td>
+                            <td>@result.CurrentValueInEUR.ToString("C", new CultureInfo("fr-FR"))</td>
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
+
+        <h5 class="text-primary mt-4">Total Amount of @(selectedCryptoSymbol) Owned: @(totalCryptoAmount.ToString("F4"))</h5>
+        <h5 class="text-primary mt-4">Total Value in EUR: @(investmentResults.Last().CurrentValueInEUR.ToString("C", new CultureInfo("fr-FR")))</h5>
     }
 </div>
 
@@ -80,20 +86,22 @@
     private string selectedCryptoSymbol = "BTC";
     private DateTime startDate = DateTime.Today;
     private decimal monthlyInvestment = 100;
-    private List<InvestmentResult> investmentResults = new List<InvestmentResult>();
+    private List<InvestmentResult> investmentResults = new();
+    private decimal totalCryptoAmount = 0;
+    private decimal eurConversionRate;
 
     protected override async Task OnInitializedAsync()
     {
         cryptocurrencies = await CryptoPriceService.GetCryptocurrencies();
+        eurConversionRate = await CryptoPriceService.GetLatestEURConversionRate();
     }
 
     private async Task Calculate()
     {
         investmentResults.Clear();
-        decimal totalInvested = 0;
-        decimal totalCryptoAmount = 0;
 
         var currentCryptoPrice = await CryptoPriceService.GetLatestPrice(selectedCryptoSymbol);
+        var currentCryptoPriceInEUR = currentCryptoPrice * eurConversionRate;
         DateTime currentDate = startDate;
 
         while (currentDate <= DateTime.Today)
@@ -103,13 +111,13 @@
             {
                 decimal investedAmount = monthlyInvestment;
                 decimal cryptoAmount = investedAmount / historicalPrice;
-                totalInvested += investedAmount;
                 totalCryptoAmount += cryptoAmount;
 
                 decimal currentValue = totalCryptoAmount * currentCryptoPrice;
+                decimal currentValueInEUR = totalCryptoAmount * currentCryptoPriceInEUR;
 
-                decimal roi = (totalInvested > 0)
-                    ? ((currentValue - totalInvested) / totalInvested) * 100
+                decimal roi = (investedAmount > 0)
+                    ? ((currentValue - investedAmount) / investedAmount) * 100
                     : 0;
 
                 investmentResults.Add(new InvestmentResult
@@ -118,6 +126,7 @@
                         InvestedAmount = investedAmount,
                         CryptoAmount = cryptoAmount,
                         CurrentValue = currentValue,
+                        CurrentValueInEUR = currentValueInEUR,
                         ReturnOnInvestment = roi
                     });
             }
@@ -132,6 +141,7 @@
         public decimal InvestedAmount { get; init; }
         public decimal CryptoAmount { get; init; }
         public decimal CurrentValue { get; init; }
+        public decimal CurrentValueInEUR { get; init; }
         public decimal ReturnOnInvestment { get; init; }
     }
 }
