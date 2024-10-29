@@ -9,8 +9,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace DcaCalculator.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20241028185722_InitialCreate-CryptoCurrencyModel")]
-    partial class InitialCreateCryptoCurrencyModel
+    [Migration("20241029083137_another-approach")]
+    partial class anotherapproach
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -29,6 +29,9 @@ namespace DcaCalculator.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("Date")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("Name")
                         .IsRequired()

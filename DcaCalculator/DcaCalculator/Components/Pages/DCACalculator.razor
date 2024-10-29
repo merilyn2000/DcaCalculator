@@ -1,0 +1,137 @@
+﻿@page "/dca-calculator"
+
+@rendermode InteractiveServer
+
+@using DcaCalculator.Models
+@using DcaCalculator
+@using DcaCalculator.Services
+@using Microsoft.EntityFrameworkCore
+
+@inject ICryptoPriceService CryptoPriceService
+
+<h3 class="text-primary text-center mt-4">Dollar Cost Averaging Investment</h3>
+
+<div class="container my-4">
+    <a href="/" class="btn btn-primary btn-primary mb-4">Go back</a>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label for="cryptoSelect" class="form-label">Please select the cryptocurrency:</label>
+            <select @bind="selectedCryptoSymbol" id="cryptoSelect" class="form-select">
+                @foreach (var crypto in cryptocurrencies)
+                {
+                    <option value="@crypto.Key">@crypto.Value (@crypto.Key)</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label for="startDate" class="form-label">Start date:</label>
+            <input type="date" @bind="startDate" id="startDate" class="form-control" />
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label for="monthlyInvestment" class="form-label">Amount invested monthly:</label>
+            <input type="number" @bind="monthlyInvestment" id="monthlyInvestment" class="form-control" />
+        </div>
+    </div>
+
+    <div class="text-center">
+        <button @onclick="Calculate" class="btn btn-primary mt-3">Calculate</button>
+    </div>
+
+    @if (investmentResults is not null && investmentResults.Count > 0)
+    {
+        <h4 class="text-success text-center mt-5">Investment Results:</h4>
+        <div class="table-responsive">
+            <table class="table table-bordered mt-3">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date:</th>
+                        <th>Investment amount:</th>
+                        <th>@(selectedCryptoSymbol) Quantity:</th>
+                        <th>Today's value:</th>
+                        <th>ROI (%):</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var result in investmentResults)
+                    {
+                        <tr>
+                            <td>@result.Date.ToString("yyyy-MM-dd")</td>
+                            <td>@result.InvestedAmount.ToString("C")</td>
+                            <td>@result.CryptoAmount.ToString("F4")</td>
+                            <td>@result.CurrentValue.ToString("C")</td>
+                            <td>@result.ReturnOnInvestment.ToString("F2")%</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private Dictionary<string, string> cryptocurrencies = [];
+    private string selectedCryptoSymbol = "BTC";
+    private DateTime startDate = DateTime.Today;
+    private decimal monthlyInvestment = 100;
+    private List<InvestmentResult> investmentResults = new List<InvestmentResult>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        cryptocurrencies = await CryptoPriceService.GetCryptocurrencies();
+    }
+
+    private async Task Calculate()
+    {
+        investmentResults.Clear();
+        decimal totalInvested = 0;
+        decimal totalCryptoAmount = 0;
+
+        var currentCryptoPrice = await CryptoPriceService.GetLatestPrice(selectedCryptoSymbol);
+        DateTime currentDate = startDate;
+
+        while (currentDate <= DateTime.Today)
+        {
+            var historicalPrice = await CryptoPriceService.GetHistoricalPrice(selectedCryptoSymbol, currentDate);
+            if (historicalPrice > 0)
+            {
+                decimal investedAmount = monthlyInvestment;
+                decimal cryptoAmount = investedAmount / historicalPrice;
+                totalInvested += investedAmount;
+                totalCryptoAmount += cryptoAmount;
+
+                decimal currentValue = totalCryptoAmount * currentCryptoPrice;
+
+                decimal roi = (totalInvested > 0)
+                    ? ((currentValue - totalInvested) / totalInvested) * 100
+                    : 0;
+
+                investmentResults.Add(new InvestmentResult
+                    {
+                        Date = currentDate,
+                        InvestedAmount = investedAmount,
+                        CryptoAmount = cryptoAmount,
+                        CurrentValue = currentValue,
+                        ReturnOnInvestment = roi
+                    });
+            }
+
+            currentDate = currentDate.AddMonths(1);
+        }
+    }
+
+    private sealed record InvestmentResult
+    {
+        public DateTime Date { get; init; }
+        public decimal InvestedAmount { get; init; }
+        public decimal CryptoAmount { get; init; }
+        public decimal CurrentValue { get; init; }
+        public decimal ReturnOnInvestment { get; init; }
+    }
+}

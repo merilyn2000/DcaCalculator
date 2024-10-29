@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace BlazorApp.Server.Models
+namespace DcaCalculator.Models
 {
     public class CryptoCurrency
     {
@@ -9,13 +9,16 @@ namespace BlazorApp.Server.Models
 
         [Required]
         [StringLength(100)]
-        public string Name { get; set; } 
+        public string Name { get; set; }
 
-        [Required] 
+        [Required]
         [StringLength(10)]
         public string Symbol { get; set; }
 
         [Required]
         public decimal Price { get; set; }
+
+        [Required]
+        public DateTime Date { get; set; }
     }
 }
