@@ -9,7 +9,6 @@
 @using System.Globalization
 
 @inject ICryptoPriceService CryptoPriceService
-@inject IJSRuntime JSRuntime
 
 <h3 class="text-primary text-center mt-4">Dollar Cost Averaging Investment</h3>
 
@@ -118,8 +117,6 @@
 
         decimal totalValueInEUR = investmentResults.Sum(r => r.TotalCurrentValueInEUR);
         <h5 class="text-primary mt-4">Total Value in EUR: @(totalValueInEUR.ToString("C", new CultureInfo("fr-FR"))) </h5>
-
-        <canvas id="investmentChart" width="400" height="200"></canvas>
     }
 </div>
 
@@ -234,22 +231,6 @@
 
             currentDate = currentDate.AddMonths(1);
         }
-
-        if (investmentResults.Count > 0)
-        {
-            await DrawChart();
-        }
-    }
-
-    private async Task DrawChart()
-    {
-        var chartData = new
-        {
-            labels = investmentResults.Select(r => r.Date.ToString("yyyy-MM-dd")).ToArray(),
-            values = investmentResults.Select(r => r.TotalCurrentValueInEUR).ToArray()
-        };
-
-        await JSRuntime.InvokeVoidAsync("drawChart", "investmentChart", chartData);
     }
 
     private class InvestmentResult

@@ -9,7 +9,6 @@
 @using System.Globalization
 
 @inject ICryptoPriceService CryptoPriceService
-@inject IJSRuntime JSRuntime
 
 <h3 class="text-primary text-center mt-4">Dollar Cost Averaging Investment</h3>
 
@@ -86,8 +85,6 @@
 
         <h5 class="text-primary mt-4">Total Amount of @(selectedCryptoSymbol) Owned: @(totalCryptoAmount.ToString("F4"))</h5>
         <h5 class="text-primary mt-4">Total Value in EUR: @(investmentResults.Last().CurrentValueInEUR.ToString("C", new CultureInfo("fr-FR"))) </h5>
-
-        <canvas id="investmentChart" width="400" height="200"></canvas>
     }
 </div>
 
@@ -179,22 +176,6 @@
 
             currentDate = currentDate.AddMonths(1);
         }
-
-        if (investmentResults.Count > 0)
-        {
-            await DrawChart();
-        }
-    }
-
-    private async Task DrawChart()
-    {
-        var chartData = new
-        {
-            labels = investmentResults.Select(r => r.Date.ToString("yyyy-MM-dd")).ToArray(),
-            values = investmentResults.Select(r => r.CurrentValueInEUR).ToArray()
-        };
-
-        await JSRuntime.InvokeVoidAsync("drawChart", "investmentChart", chartData);
     }
 
     private sealed record InvestmentResult
