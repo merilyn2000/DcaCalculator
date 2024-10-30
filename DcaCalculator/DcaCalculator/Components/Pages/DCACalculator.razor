@@ -16,6 +16,13 @@
 <div class="container my-4">
     <a href="/" class="btn btn-primary btn-primary mb-4">Go back</a>
 
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">
+            @errorMessage
+        </div>
+    }
+
     <div class="row mb-3">
         <div class="col-md-6">
             <label for="cryptoSelect" class="form-label">Please select the cryptocurrency:</label>
@@ -89,9 +96,10 @@
     private string selectedCryptoSymbol = "BTC";
     private DateTime startDate = DateTime.Today;
     private decimal monthlyInvestment = 100;
-    private List<InvestmentResult> investmentResults = new();
+    private List<InvestmentResult> investmentResults = [];
     private decimal totalCryptoAmount = 0;
     private decimal eurConversionRate;
+    private string errorMessage = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -101,16 +109,51 @@
 
     private async Task Calculate()
     {
+        if (monthlyInvestment <= 0)
+        {
+            errorMessage = "The monthly investment amount must be greater than zero.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedCryptoSymbol))
+        {
+            errorMessage = "Please select a cryptocurrency";
+            return;
+        }
+
+        var oldestDate = await CryptoPriceService.GetOldestDate();
+        if (startDate < oldestDate)
+        {
+            errorMessage = $"The start date ({startDate.ToString("yyyy-MM-dd")}) cannot be earlier than the oldest date in the database ({oldestDate.ToString("yyyy-MM-dd")}).";
+            return;
+        }
+
+        if (startDate > DateTime.Today)
+        {
+            errorMessage = "The start date cannot be in the future.";
+            return;
+        }
+
+        errorMessage = string.Empty;
+
         investmentResults.Clear();
+        totalCryptoAmount = 0;
 
         var currentCryptoPrice = await CryptoPriceService.GetLatestPrice(selectedCryptoSymbol);
         var currentCryptoPriceInEUR = currentCryptoPrice * eurConversionRate;
+
+        var historicalPrices = await CryptoPriceService.GetHistoricalPrices(selectedCryptoSymbol, startDate, DateTime.Today);
+        if (historicalPrices.Count == 0)
+        {
+            errorMessage = "There is no historical prices";
+            return;
+        }
+
         DateTime currentDate = startDate;
 
         while (currentDate <= DateTime.Today)
         {
-            var historicalPrice = await CryptoPriceService.GetHistoricalPrice(selectedCryptoSymbol, currentDate);
-            if (historicalPrice > 0)
+            if (historicalPrices.TryGetValue(currentDate.Date, out decimal historicalPrice) && historicalPrice > 0)
             {
                 decimal investedAmount = monthlyInvestment;
                 decimal cryptoAmount = investedAmount / historicalPrice;
@@ -124,14 +167,14 @@
                     : 0;
 
                 investmentResults.Add(new InvestmentResult
-                    {
-                        Date = currentDate,
-                        InvestedAmount = investedAmount,
-                        CryptoAmount = cryptoAmount,
-                        CurrentValueInUSD = currentValue,
-                        CurrentValueInEUR = currentValueInEUR,
-                        ReturnOnInvestment = roi
-                    });
+                {
+                    Date = currentDate,
+                    InvestedAmount = investedAmount,
+                    CryptoAmount = cryptoAmount,
+                    CurrentValueInUSD = currentValue,
+                    CurrentValueInEUR = currentValueInEUR,
+                    ReturnOnInvestment = roi
+                });
             }
 
             currentDate = currentDate.AddMonths(1);

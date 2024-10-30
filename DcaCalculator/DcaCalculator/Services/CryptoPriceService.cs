@@ -7,8 +7,15 @@ namespace DcaCalculator.Services
     public interface ICryptoPriceService
     {
         Task<Dictionary<string, string>> GetCryptocurrencies();
+
         Task<decimal> GetLatestPrice(string symbol);
-        Task<decimal> GetHistoricalPrice(string symbol, DateTime date);
+        Task<Dictionary<string, decimal>> GetLatestPrices(IEnumerable<string> symbols);
+
+        Task<Dictionary<DateTime, decimal>> GetHistoricalPrices(string symbol, DateTime startDate, DateTime endDate);
+        Task<Dictionary<string, Dictionary<DateTime, decimal>>> GetMultipleHistoricalPrices(IEnumerable<string> symbols, DateTime startDate, DateTime endDate);
+
+        Task<DateTime> GetOldestDate();
+
         Task<decimal> GetLatestEURConversionRate();
     }
 
@@ -33,17 +40,60 @@ namespace DcaCalculator.Services
         public async Task<decimal> GetLatestPrice(string symbol)
         {
             return await _dbContext.CryptoCurrencies
-                .Where(c => c.Symbol == symbol)
+                .Where(x => x.Symbol == symbol)
                 .OrderByDescending(c => c.Date)
                 .Select(x => x.Price)
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<decimal> GetHistoricalPrice(string symbol, DateTime date)
+        public async Task<Dictionary<string, decimal>> GetLatestPrices(IEnumerable<string> symbols)
         {
             return await _dbContext.CryptoCurrencies
-                .Where(c => c.Symbol == symbol && c.Date.Date == date.Date)
-                .Select(x => x.Price)
+               .Where(x => symbols.Contains(x.Symbol))
+               .OrderByDescending(x => x.Date)
+               .GroupBy(x => x.Symbol)
+               .Select(x => new
+               {
+                   Symbol = x.Key,
+                   x.First().Price
+               })
+               .ToDictionaryAsync(x => x.Symbol, x => x.Price);
+        }
+
+        public async Task<Dictionary<DateTime, decimal>> GetHistoricalPrices(string symbol, DateTime startDate, DateTime endDate)
+        {
+            return await _dbContext.CryptoCurrencies
+                .Where(x => x.Symbol == symbol && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date)
+                .ToDictionaryAsync(x => x.Date.Date, x => x.Price);
+        }
+
+        public async Task<Dictionary<string, Dictionary<DateTime, decimal>>> GetMultipleHistoricalPrices(IEnumerable<string> symbols, DateTime startDate, DateTime endDate)
+        {
+            var historicalData = await _dbContext.CryptoCurrencies
+                .Where(x => symbols.Contains(x.Symbol) && x.Date.Date >= startDate && x.Date.Date <= endDate)
+                .ToListAsync();
+
+            var historicalPrices = new Dictionary<string, Dictionary<DateTime, decimal>>();
+
+            foreach (var entry in historicalData)
+            {
+                if (!historicalPrices.TryGetValue(entry.Symbol, out Dictionary<DateTime, decimal>? value))
+                {
+                    value = [];
+                    historicalPrices[entry.Symbol] = value;
+                }
+
+                value[entry.Date.Date] = entry.Price;
+            }
+
+            return historicalPrices;
+        }
+
+        public async Task<DateTime> GetOldestDate()
+        {
+            return await _dbContext.CryptoCurrencies
+                .OrderBy(x => x.Date)
+                .Select(x => x.Date)
                 .FirstOrDefaultAsync();
         }
 

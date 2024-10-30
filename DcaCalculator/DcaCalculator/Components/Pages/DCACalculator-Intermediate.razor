@@ -1,0 +1,264 @@
+﻿@page "/dca-calculator-intermediate"
+
+@rendermode InteractiveServer
+
+@using DcaCalculator.Models
+@using DcaCalculator
+@using DcaCalculator.Services
+@using Microsoft.EntityFrameworkCore
+@using System.Globalization
+
+@inject ICryptoPriceService CryptoPriceService
+@inject IJSRuntime JSRuntime
+
+<h3 class="text-primary text-center mt-4">Dollar Cost Averaging Investment</h3>
+
+<div class="container my-4">
+    <a href="/" class="btn btn-primary mb-4">Go back</a>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger" role="alert">
+            @errorMessage
+        </div>
+    }
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label class="form-label">Please select the cryptocurrencies:</label>
+            @foreach (var crypto in cryptocurrencies)
+            {
+                <div>
+                    <input type="checkbox" @bind="cryptoSelection[crypto.Key]" id="@crypto.Key" />
+                    <label for="@crypto.Key">@crypto.Value (@crypto.Key)</label>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label for="startDate" class="form-label">Start date:</label>
+            <input type="date" @bind="startDate" id="startDate" class="form-control" />
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-6">
+            <label for="monthlyInvestment" class="form-label">Total amount to invest monthly:</label>
+            <input type="number" @bind="monthlyInvestment" id="monthlyInvestment" class="form-control" />
+        </div>
+    </div>
+
+    <div class="text-center">
+        <button @onclick="Calculate" class="btn btn-primary mt-3">Calculate</button>
+    </div>
+
+    @if (investmentResults is not null && investmentResults.Count > 0)
+    {
+        <h4 class="text-success text-center mt-5">Investment Results:</h4>
+        <div class="table-responsive">
+            <table class="table table-bordered mt-3">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date:</th>
+                        @foreach (var crypto in selectedCryptos)
+                        {
+                            <th>@(crypto) Amount:</th>
+                            <th>@(crypto) Amount Invested:</th>
+                        }
+                        <th>Today's value in USD:</th>
+                        <th>ROI (%):</th>
+                        <th>Today's value in EUR:</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var result in investmentResults)
+                    {
+                        <tr>
+                            <td>@result.Date.ToString("yyyy-MM-dd")</td>
+                            @foreach (var crypto in selectedCryptos)
+                            {
+                                <td>@result.CryptoAmounts[crypto].ToString("F4")</td>
+                                <td>@result.InvestedAmounts[crypto].ToString("C")</td>
+                            }
+                            <td>@result.TotalCurrentValueInUSD.ToString("C")</td>
+                            <td>@result.ReturnOnInvestment.ToString("F2")%</td>
+                            <td>@result.TotalCurrentValueInEUR.ToString("C", new CultureInfo("fr-FR"))</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td><strong>Total:</strong></td>
+                        @foreach (var crypto in selectedCryptos)
+                        {
+                            <td><strong>@totalCryptoAmounts[crypto].ToString("F4")</strong></td>
+                            <td><strong>@investmentResults.Sum(r => r.InvestedAmounts[crypto]).ToString("C")</strong></td>
+                        }
+                        <td><strong>@investmentResults.Sum(r => r.TotalCurrentValueInUSD).ToString("C")</strong></td>
+                        <td>
+                            <strong>
+                                @((investmentResults.Sum(r => r.TotalCurrentValueInUSD) > 0)
+                                    ? ((investmentResults.Sum(r => r.TotalCurrentValueInUSD) - (monthlyInvestment * investmentResults.Count)) / (monthlyInvestment * investmentResults.Count) * 100).ToString("F2")
+                                    : "0.00")
+                                %
+                            </strong>
+                        </td>
+                        <td><strong>@investmentResults.Sum(r => r.TotalCurrentValueInEUR).ToString("C", new CultureInfo("fr-FR"))</strong></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        @foreach (var crypto in selectedCryptos)
+        {
+            <h5 class="text-primary mt-4">Total Amount of @(crypto): @(totalCryptoAmounts[crypto].ToString("F4"))</h5>
+        }
+
+        decimal totalValueInEUR = investmentResults.Sum(r => r.TotalCurrentValueInEUR);
+        <h5 class="text-primary mt-4">Total Value in EUR: @(totalValueInEUR.ToString("C", new CultureInfo("fr-FR"))) </h5>
+
+        <canvas id="investmentChart" width="400" height="200"></canvas>
+    }
+</div>
+
+@code {
+    private Dictionary<string, string> cryptocurrencies = [];
+    private Dictionary<string, bool> cryptoSelection = [];
+    private List<string> selectedCryptos = [];
+    private DateTime startDate = DateTime.Today;
+    private decimal monthlyInvestment = 100;
+    private List<InvestmentResult> investmentResults = [];
+    private Dictionary<string, decimal> totalCryptoAmounts = [];
+    private decimal eurConversionRate;
+    private string errorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        cryptocurrencies = await CryptoPriceService.GetCryptocurrencies();
+        foreach (var crypto in cryptocurrencies.Keys)
+        {
+            cryptoSelection[crypto] = false;
+            totalCryptoAmounts[crypto] = 0;
+        }
+        eurConversionRate = await CryptoPriceService.GetLatestEURConversionRate();
+    }
+
+    private async Task Calculate()
+    {
+        if (monthlyInvestment <= 0)
+        {
+            errorMessage = "The monthly investment amount must be greater than zero.";
+            return;
+        }
+
+        var oldestDate = await CryptoPriceService.GetOldestDate();
+        if (startDate < oldestDate)
+        {
+            errorMessage = $"The start date ({startDate.ToString("yyyy-MM-dd")}) cannot be earlier than the oldest date in the database ({oldestDate.ToString("yyyy-MM-dd")}).";
+            return;
+        }
+
+        if (startDate > DateTime.Today)
+        {
+            errorMessage = "The start date cannot be in the future.";
+            return;
+        }
+
+        errorMessage = string.Empty;
+
+        investmentResults.Clear();
+
+        foreach (var key in totalCryptoAmounts.Keys.ToList())
+        {
+            totalCryptoAmounts[key] = 0;
+        }
+
+        selectedCryptos = cryptoSelection.Where(x => x.Value).Select(x => x.Key).ToList();
+        if (!selectedCryptos.Any())
+        {
+            errorMessage = "Please select at least one cryptocurrency.";
+            return;
+        }
+        
+        var currentCryptoPrices = await CryptoPriceService.GetLatestPrices(selectedCryptos);
+
+        var historicalPrices = await CryptoPriceService.GetMultipleHistoricalPrices(selectedCryptos, startDate, DateTime.Today);
+        if (historicalPrices.Count == 0)
+        {
+            errorMessage = "There is no historical prices";
+            return;
+        }
+
+        decimal amountPerCrypto = monthlyInvestment / selectedCryptos.Count;
+
+        DateTime currentDate = startDate;
+
+        while (currentDate <= DateTime.Today)
+        {
+            Dictionary<string, decimal> cryptoAmounts = [];
+            Dictionary<string, decimal> investedAmounts = [];
+            decimal totalCurrentValueInUSD = 0;
+            decimal totalCurrentValueInEUR = 0;
+
+            foreach (var crypto in selectedCryptos)
+            {
+                if (!historicalPrices[crypto].TryGetValue(currentDate.Date, out var priceOnDate))
+                {
+                    priceOnDate = 0;
+                }
+
+                cryptoAmounts[crypto] = amountPerCrypto / priceOnDate;
+
+                investedAmounts[crypto] = amountPerCrypto;
+
+                totalCryptoAmounts[crypto] += cryptoAmounts[crypto];
+
+                totalCurrentValueInUSD += cryptoAmounts[crypto] * currentCryptoPrices[crypto];
+            }
+
+            decimal roi = (totalCurrentValueInUSD > 0) ? ((totalCurrentValueInUSD - monthlyInvestment) / monthlyInvestment) * 100 : 0;
+
+            totalCurrentValueInEUR = totalCurrentValueInUSD * eurConversionRate;
+
+            investmentResults.Add(new InvestmentResult
+                {
+                    Date = currentDate,
+                    CryptoAmounts = cryptoAmounts,
+                    InvestedAmounts = investedAmounts,
+                    TotalCurrentValueInUSD = totalCurrentValueInUSD,
+                    TotalCurrentValueInEUR = totalCurrentValueInEUR,
+                    ReturnOnInvestment = roi
+                });
+
+            currentDate = currentDate.AddMonths(1);
+        }
+
+        if (investmentResults.Count > 0)
+        {
+            await DrawChart();
+        }
+    }
+
+    private async Task DrawChart()
+    {
+        var chartData = new
+        {
+            labels = investmentResults.Select(r => r.Date.ToString("yyyy-MM-dd")).ToArray(),
+            values = investmentResults.Select(r => r.TotalCurrentValueInEUR).ToArray()
+        };
+
+        await JSRuntime.InvokeVoidAsync("drawChart", "investmentChart", chartData);
+    }
+
+    private class InvestmentResult
+    {
+        public DateTime Date { get; init; }
+        public Dictionary<string, decimal> CryptoAmounts { get; init; } = [];
+        public Dictionary<string, decimal> InvestedAmounts { get; init; } = [];
+        public decimal TotalCurrentValueInUSD { get; init; }
+        public decimal TotalCurrentValueInEUR { get; init; }
+        public decimal ReturnOnInvestment { get; init; }
+    }
+}
